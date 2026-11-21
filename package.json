@@ -79,7 +79,8 @@
       "esbuild"
     ],
     "overrides": {
-      "postcss-selector-parser": "^7.1.6"
+      "postcss-selector-parser": "^7.1.6",
+      "@swc/core": "1.15.33"
     }
   }
 }
