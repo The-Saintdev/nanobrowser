@@ -1,0 +1,75 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  mcpSecretsStorage,
+  mcpServerSlug,
+  mcpServersStorage,
+  normalizeMcpUrl,
+  removeMcpServer,
+  upsertMcpServer,
+} from '../mcp';
+
+function installFakeChromeStorage() {
+  const localData: Record<string, unknown> = {};
+  (globalThis as Record<string, unknown>).chrome = {
+    storage: {
+      local: {
+        get: async (keys: string[]) => Object.fromEntries(keys.map(k => [k, localData[k]])),
+        set: async (items: Record<string, unknown>) => Object.assign(localData, items),
+        onChanged: { addListener: () => undefined },
+      },
+      session: {
+        get: async () => ({}),
+        set: async () => undefined,
+        onChanged: { addListener: () => undefined },
+      },
+    },
+  };
+  return localData;
+}
+
+describe('mcp store helpers', () => {
+  let backing: Record<string, unknown>;
+
+  beforeEach(() => {
+    backing = installFakeChromeStorage();
+  });
+
+  it('validates http and https URLs and rejects other schemes', () => {
+    expect(normalizeMcpUrl(' https://saintstack.crescoafrica.com/mcp ')).toBe(
+      'https://saintstack.crescoafrica.com/mcp',
+    );
+    expect(normalizeMcpUrl('http://localhost:8787/mcp')).toBe('http://localhost:8787/mcp');
+    expect(normalizeMcpUrl('javascript:alert(1)')).toBeNull();
+    expect(normalizeMcpUrl('file:///etc/passwd')).toBeNull();
+    expect(normalizeMcpUrl('not a url')).toBeNull();
+  });
+
+  it('builds deterministic lowercase slugs', () => {
+    expect(mcpServerSlug('SaintStack Prod!')).toBe('saintstack_prod');
+    expect(mcpServerSlug('---')).toBe('server');
+  });
+
+  it('stores servers and secrets separately and removes both cleanly', async () => {
+    await upsertMcpServer(
+      {
+        id: 's1',
+        name: 'SaintStack',
+        url: 'https://saintstack.crescoafrica.com/mcp',
+        enabled: true,
+        tools: [{ name: 'search', description: 'Search memory', inputSchema: { type: 'object', properties: {} } }],
+      },
+      { authType: 'bearer', token: 'secret-token' },
+    );
+
+    const servers = await mcpServersStorage.get();
+    const secrets = await mcpSecretsStorage.get();
+    expect(servers).toHaveLength(1);
+    expect(servers[0]?.name).toBe('SaintStack');
+    expect(secrets.s1).toEqual({ authType: 'bearer', token: 'secret-token' });
+    expect(JSON.stringify(backing['nb.mcpServers'])).not.toContain('secret-token');
+
+    await removeMcpServer('s1');
+    expect(await mcpServersStorage.get()).toEqual([]);
+    expect(await mcpSecretsStorage.get()).toEqual({});
+  });
+});

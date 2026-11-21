@@ -6,6 +6,7 @@ import type { HostPort } from '@src/agent/ports';
 import type { Session, UserStepDetails } from '@src/browser-control';
 import { agentSystemPrompt } from '@src/agent/prompt';
 import { toolsForRun } from '@src/agent/tools';
+import type { AgentTool } from '@src/agent/tools';
 import { toDisplay } from '@src/agent/display';
 import {
   activeBranch,
@@ -54,10 +55,13 @@ import { thumbnail } from './thumbnail';
 import { isNumberedCopy, saveText } from './downloads';
 import { checkSave } from '@src/agent/save-file';
 import { conversationMarkdown, exportName } from '@src/agent/export';
-import { isBlockedSite, quote } from '@src/browser-control';
+import { isBlockedSite, quote, siteOf } from '@src/browser-control';
 import { clearShortcuts, isStartUrl } from '@src/store/shortcuts';
+import { MCP_SECRETS_KEY, MCP_SERVERS_KEY, mcpSecretsStorage, mcpServersStorage } from '@src/store/mcp';
 import { OLD_KEYS, UPGRADE_KEY, deleteOldChats } from '@src/store/legacy';
 import { upgradeFromOldVersion } from './upgrade';
+import { buildMcpAgentTools, clearMcpSessions, fetchServerTools, invokeMcpTool } from './mcp-client';
+import type { McpToolBinding } from './mcp-client';
 import { WHATS_NEW_KEY } from '@src/store/whats-new';
 import { RATING_ANSWER_KEY, RATING_KEY, afterFinishedRun, ratingStorage } from '@src/store/rating';
 import type { ToolCallRequest } from '@src/llm';
@@ -89,6 +93,8 @@ export class RunManager {
   readonly broker: PromptBroker;
   #runs = new Map<string, ActiveRun>();
   #sessions = new Map<string, Session>();
+  /** Active MCP tool bindings keyed by conversation id and public AgentTool name. */
+  #mcpBindings = new Map<string, Map<string, McpToolBinding>>();
   /** The mode of a conversation with a run, read by the page header each turn (the user may change it). */
   #modes = new Map<string, Conversation['mode']>();
   #records = new Map<string, RunRecord>();
@@ -741,12 +747,16 @@ export class RunManager {
         'nb.providers',
         'nb.keys',
         'nb.siteRules',
+        MCP_SERVERS_KEY,
+        MCP_SECRETS_KEY,
         UPGRADE_KEY,
         WHATS_NEW_KEY,
         RATING_KEY,
         RATING_ANSWER_KEY,
         ...OLD_KEYS,
       ]);
+      this.#mcpBindings.clear();
+      clearMcpSessions();
     });
   }
 
@@ -992,17 +1002,63 @@ export class RunManager {
     for (const c of open) this.journal.direct(c.conversationId, c.sink, { type: 'selection', ...selection });
   }
 
+  /** Loads enabled MCP servers' tools, syncing never-synced servers once on first use. */
+  async #mcpTools(conversationId?: string): Promise<AgentTool[]> {
+    let servers = await mcpServersStorage.get();
+    const secrets = await mcpSecretsStorage.get();
+    const pendingSync = servers.filter(s => s.enabled && !s.lastSyncedAt && !s.lastError && s.tools.length === 0);
+    if (pendingSync.length) {
+      const updated = await Promise.all(
+        servers.map(async s => {
+          if (!s.enabled || s.lastSyncedAt || s.lastError || s.tools.length > 0) return s;
+          try {
+            const tools = await fetchServerTools(s.url, secrets[s.id], { timeoutMs: 5_000 });
+            return { ...s, tools, lastSyncedAt: new Date().toISOString(), lastError: undefined };
+          } catch (error) {
+            return { ...s, lastError: error instanceof Error ? error.message : String(error) };
+          }
+        }),
+      );
+      await mcpServersStorage.set(updated);
+      servers = updated;
+    }
+    const { agentTools, bindings } = buildMcpAgentTools(servers, secrets);
+    if (conversationId) {
+      if (bindings.size) this.#mcpBindings.set(conversationId, bindings);
+      else this.#mcpBindings.delete(conversationId);
+    }
+    return agentTools;
+  }
+
   /**
-   * The agent tools the worker runs: `save_file`. It follows the mode: in Ask mode the Save file card asks; in Auto
-   * mode the file is saved. Either way an existing file is never overwritten. Saving needs Chrome's downloads
-   * permission, which only a user's click can allow: until it is allowed, the card asks in Auto mode too, and the file
-   * is never saved without it.
+   * The agent tools the worker runs: `save_file` and any enabled MCP server tools. `save_file` follows the mode: in
+   * Ask mode the Save file card asks; in Auto mode the file is saved. Non-read-only MCP tools also ask in Ask mode.
    */
   async #agentTool(
     conversationId: string,
     call: ToolCallRequest,
     signal: AbortSignal,
   ): Promise<{ text: string; isError: boolean }> {
+    const binding = this.#mcpBindings.get(conversationId)?.get(call.toolName);
+    if (binding) {
+      if (!binding.readOnly && (this.#modes.get(conversationId) ?? 'ask') === 'ask') {
+        const answer = await this.broker.open<'yes' | 'no'>(
+          conversationId,
+          'confirm',
+          { question: 'mcp-tool', server: binding.server.name, tool: binding.remoteName },
+          signal,
+        );
+        if (answer !== 'yes') {
+          return { text: `${call.toolName} · the user declined to run this MCP tool.`, isError: true };
+        }
+      }
+      const res = await invokeMcpTool(binding, (call.input ?? {}) as Record<string, unknown>, { signal });
+      const session = this.#sessions.get(conversationId);
+      const text = session
+        ? session.wrap(res.text, { site: siteOf(binding.server.url) || binding.server.name })
+        : res.text;
+      return { text, isError: res.isError };
+    }
     if (call.toolName !== 'save_file') return { text: `error: ${call.toolName} is not available.`, isError: true };
     const args = (call.input ?? {}) as Record<string, unknown>;
     const check = checkSave(args);
@@ -1130,7 +1186,7 @@ export class RunManager {
     try {
       const model = await resolveModel(await livePair(conversationId));
       const settings = (await settingsStorage.get()) ?? DEFAULT_SETTINGS;
-      const tools = toolsForRun({ vision: model.profile.vision });
+      const tools = toolsForRun({ vision: model.profile.vision, agentTools: await this.#mcpTools() });
       const system = agentSystemPrompt({
         responseLanguage: settings.responseLanguage,
         tools: tools.map(t => t.name),
@@ -1299,7 +1355,7 @@ export class RunManager {
         this.#modes.set(conversationId, conversation.mode);
         const session = await this.#openSession(conversationId);
         record.tabs = session.tabIds();
-        const tools = toolsForRun({ vision: model.profile.vision });
+        const tools = toolsForRun({ vision: model.profile.vision, agentTools: await this.#mcpTools(conversationId) });
         const loop = new AgentLoop({
           conversationId,
           runId,
@@ -1358,6 +1414,7 @@ export class RunManager {
         }
         this.#runs.delete(conversationId);
         this.#records.delete(conversationId);
+        this.#mcpBindings.delete(conversationId);
         this.broker.withdrawAll(conversationId);
         // When a run ends the debugger is detached; the next run attaches again and starts fresh.
         await this.#closeSession(conversationId);

@@ -9,7 +9,9 @@ import { analyticsReady, listenForSwitches, recordInstall } from './analytics';
 import { setUninstallPage } from './uninstall';
 import { openWhatsNew } from '@src/store/whats-new';
 import { WHATS_NEW, releaseOf } from '@src/ui/whats-new';
-import { DATA_REQUEST } from '@src/ui/protocol';
+import { DATA_REQUEST, MCP_REQUEST } from '@src/ui/protocol';
+import type { McpServerSecret } from '@src/store/mcp';
+import { fetchServerTools } from './mcp-client';
 
 export const runManager = new RunManager();
 listenForPanels(runManager);
@@ -35,14 +37,24 @@ chrome.runtime.onInstalled.addListener(details => {
 });
 // Settings → Data → Delete everything goes through the RunManager, which stops running tasks first.
 chrome.runtime.onMessage.addListener((message: unknown, sender, reply) => {
-  const m = message as { type?: string; op?: 'delete-all' };
-  if (m?.type !== DATA_REQUEST || sender.id !== chrome.runtime.id) return;
-  const done = m.op === 'delete-all' ? runManager.deleteAll() : Promise.reject(new Error('unknown request'));
-  done.then(
-    () => reply({ ok: true }),
-    error => reply({ ok: false, error: String(error) }),
-  );
-  return true;
+  if (sender.id !== chrome.runtime.id) return;
+  const m = message as { type?: string; op?: string; url?: string; secret?: McpServerSecret };
+  if (m?.type === DATA_REQUEST) {
+    const done = m.op === 'delete-all' ? runManager.deleteAll() : Promise.reject(new Error('unknown request'));
+    done.then(
+      () => reply({ ok: true }),
+      error => reply({ ok: false, error: String(error) }),
+    );
+    return true;
+  }
+  if (m?.type === MCP_REQUEST && m.op === 'test' && typeof m.url === 'string') {
+    fetchServerTools(m.url, m.secret).then(
+      tools => reply({ ok: true, tools }),
+      error => reply({ ok: false, error: error instanceof Error ? error.message : String(error) }),
+    );
+    return true;
+  }
+  return;
 });
 chrome.alarms?.onAlarm.addListener(() => undefined);
 void runManager.restore().catch(error => console.error('[runs] restore failed', error));

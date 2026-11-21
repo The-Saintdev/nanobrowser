@@ -15,6 +15,8 @@ export interface AgentTool extends ToolDefinition {
   group: 'reading' | 'acting' | 'files' | 'working';
   /** `snapshot` and `done`: a run always has them, even with `disabled`. */
   required?: boolean;
+  /** Tool kind override for dynamic agent tools such as MCP tools. */
+  kind?: ToolKind;
 }
 
 /** Tools of the layer the agent never gets: page script, devtools, coordinates and selectors. */

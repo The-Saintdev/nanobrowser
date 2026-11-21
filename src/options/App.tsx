@@ -10,6 +10,7 @@ import { ProvidersSection } from './ProvidersSection';
 import { PermissionsSection } from './PermissionsSection';
 import { ShortcutsSection } from './ShortcutsSection';
 import { MemorySection } from './MemorySection';
+import { McpSection } from './McpSection';
 import { DataSection } from './DataSection';
 import { AboutSection } from './AboutSection';
 import { Logo } from '@src/ui/icons';
@@ -21,6 +22,7 @@ const SECTIONS: Array<{ id: string; label: MessageKey; render: () => JSX.Element
   { id: 'permissions', label: 'settings.nav.permissions', render: () => <PermissionsSection /> },
   { id: 'shortcuts', label: 'settings.nav.shortcuts', render: () => <ShortcutsSection /> },
   { id: 'memory', label: 'settings.nav.memory', render: () => <MemorySection /> },
+  { id: 'mcp', label: 'settings.nav.mcp', render: () => <McpSection /> },
   { id: 'data', label: 'settings.nav.data', render: () => <DataSection /> },
   { id: 'about', label: 'settings.nav.about', render: () => <AboutSection /> },
 ];

@@ -230,9 +230,12 @@ function InputCard({ prompt, answer }: { prompt: OpenPrompt; answer: (a: unknown
 }
 
 function ConfirmCard({ prompt, answer }: { prompt: OpenPrompt; answer: (a: unknown) => void }) {
+  const isMcp = prompt.data.question === 'mcp-tool';
   return (
-    <Frame title={t('card.confirm.moveTab')} tone="agent">
-      <Line muted>{plain(prompt.data.title)}</Line>
+    <Frame
+      title={isMcp ? t('card.confirm.mcpTool', { server: plain(prompt.data.server) }) : t('card.confirm.moveTab')}
+      tone={isMcp ? 'write' : 'agent'}>
+      <Line muted>{isMcp ? plain(prompt.data.tool) : plain(prompt.data.title)}</Line>
       <Buttons>
         <button type="button" className={primary} onClick={() => answer('yes')}>
           {t('card.yes')}

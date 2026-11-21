@@ -32,6 +32,7 @@ To work, Nanobrowser sends data directly from your browser to the AI providers y
 
 - **Your model provider** (for example Anthropic, OpenAI, Google, OpenRouter, or a local server such as Ollama): your messages, your attachments, the content of the tabs the agent works in, and, for models that can see images, screenshots of those tabs.
 - **Your voice model provider** (OpenAI or Google), only if you turn on voice input: the audio of each recording. Recordings are not kept.
+- **Your MCP servers** (optional, configured in Settings → MCP Servers): tool call arguments and their configured credentials are sent directly from your browser only to the server URLs you enable.
 
 How these providers handle your data is governed by their own privacy policies. If you use a local model, the data stays on your computer.
 

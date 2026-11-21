@@ -234,3 +234,9 @@ export type PanelEvent = PanelEventBody & { seq: number; conversationId: string 
  * `{ type: DATA_REQUEST, op: 'delete-all' }`, answered with `{ ok: true }`.
  */
 export const DATA_REQUEST = 'nb.data';
+
+/**
+ * Settings → MCP tests an endpoint and discovers its tools through the worker:
+ * `{ type: MCP_REQUEST, op: 'test', url, secret }`, answered with `{ ok: true, tools }` or `{ ok: false, error }`.
+ */
+export const MCP_REQUEST = 'nb.mcp';

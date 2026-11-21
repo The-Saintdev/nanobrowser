@@ -499,9 +499,14 @@ export class AgentLoop {
     return messages;
   }
 
+  #kind(call: ToolCallRequest): ToolKind {
+    const def = this.options.tools.find(t => t.name === call.toolName);
+    return def?.kind ?? kindOf(call.toolName, (call.input ?? {}) as Record<string, unknown>);
+  }
+
   /** Before a call runs: the allowlist, again at dispatch. Returns an outcome to refuse the call. */
   async beforeToolCall(call: ToolCallRequest): Promise<CallOutcome | null> {
-    const kind = kindOf(call.toolName, (call.input ?? {}) as Record<string, unknown>);
+    const kind = this.#kind(call);
     if (call.invalid) {
       const known = this.#toolNames.has(call.toolName);
       const notInRun = !known && allTools().some(t => t.name === call.toolName);
@@ -812,7 +817,7 @@ export class AgentLoop {
           for (const c of reply.toolCalls) {
             await this.#record({
               call: c,
-              kind: kindOf(c.toolName, (c.input ?? {}) as Record<string, unknown>),
+              kind: this.#kind(c),
               text: 'skipped: the server cut the request to fit its window; the context is being shortened.',
               isError: true,
               skipped: true,
@@ -1001,7 +1006,7 @@ export class AgentLoop {
       for (const call of calls.slice(from)) {
         const o: CallOutcome = {
           call,
-          kind: kindOf(call.toolName, (call.input ?? {}) as Record<string, unknown>),
+          kind: this.#kind(call),
           text,
           isError: true,
           skipped: true,
@@ -1025,15 +1030,11 @@ export class AgentLoop {
         return outcomes;
       }
       const call = runnable[i];
-      const kind = kindOf(call.toolName, (call.input ?? {}) as Record<string, unknown>);
+      const kind = this.#kind(call);
       if (kind === 'read') {
         // Consecutive reads run in parallel.
         let j = i;
-        while (
-          j < runnable.length &&
-          kindOf(runnable[j].toolName, (runnable[j].input ?? {}) as Record<string, unknown>) === 'read'
-        )
-          j++;
+        while (j < runnable.length && this.#kind(runnable[j]) === 'read') j++;
         const group = runnable.slice(i, j);
         const results = await Promise.all(group.map(c => this.#execute(c)));
         for (const o of results) {
@@ -1076,7 +1077,7 @@ export class AgentLoop {
   async #execute(call: ToolCallRequest): Promise<CallOutcome> {
     const { emit, signal } = this.options;
     const args = (call.input ?? {}) as Record<string, unknown>;
-    const kind = kindOf(call.toolName, args);
+    const kind = this.#kind(call);
     emit({ type: 'tool_execution_start', messageId: this.#replyId, row: this.#row(call, 'running') });
     const refused = await this.beforeToolCall(call);
     if (refused) return this.afterToolCall(refused);
