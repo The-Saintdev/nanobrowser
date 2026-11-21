@@ -8,6 +8,7 @@ import {
   mcpSecretsStorage,
   mcpServersStorage,
   normalizeMcpUrl,
+  parseMcpJsonImport,
   removeMcpServer,
   upsertMcpServer,
 } from '@src/store/mcp';
@@ -16,6 +17,19 @@ import { SettingsCard, SettingsRow } from './SettingsCard';
 
 const NO_SERVERS: McpServerConfig[] = [];
 const NO_SECRETS: Record<string, McpServerSecret> = {};
+const IMPORT_PLACEHOLDER = `{
+  "mcp": {
+    "servers": {
+      "saintstack": {
+        "type": "remote",
+        "url": "https://saintstack.crescoafrica.com/mcp",
+        "headers": {
+          "Authorization": "Bearer saint_sec_..."
+        }
+      }
+    }
+  }
+}`;
 
 interface McpTestReply {
   ok: boolean;
@@ -114,6 +128,14 @@ function ServerCard({ server, secret }: { server: McpServerConfig; secret?: McpS
           checked={server.enabled}
           aria-label={t('mcp.toggleServer', { name: server.name })}
           onChange={enabled => void upsertMcpServer({ ...server, enabled })}
+        />
+      </SettingsRow>
+
+      <SettingsRow label={t('mcp.autoApprove')} description={t('mcp.autoApproveHint')}>
+        <Switch
+          checked={server.autoApprove === true}
+          aria-label={t('mcp.autoApproveToggle', { name: server.name })}
+          onChange={autoApprove => void upsertMcpServer({ ...server, autoApprove })}
         />
       </SettingsRow>
 
@@ -240,6 +262,11 @@ export function McpSection() {
   const [error, setError] = useState<string | null>(null);
   const [canSaveOffline, setCanSaveOffline] = useState(false);
 
+  const [jsonText, setJsonText] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+
   const buildDraft = (): { url: string; name: string; secret: McpServerSecret } | null => {
     const normalized = normalizeMcpUrl(url);
     if (!normalized) {
@@ -313,10 +340,74 @@ export function McpSection() {
     await saveServer(draft, [], error ?? t('mcp.connectError'));
   };
 
+  const handleImportJson = async () => {
+    setImportError(null);
+    setImportNotice(null);
+    const parsed = parseMcpJsonImport(jsonText);
+    if (!parsed.ok) {
+      setImportError(parsed.error);
+      return;
+    }
+    if (!parsed.servers.length) {
+      const skipped = parsed.skippedLocal.length
+        ? t('mcp.importSkippedLocal', { names: parsed.skippedLocal.join(', ') })
+        : '';
+      setImportError([t('mcp.importEmpty'), skipped].filter(Boolean).join(' '));
+      return;
+    }
+    setImporting(true);
+    for (const entry of parsed.servers) {
+      const existing = servers.find(s => s.url === entry.url);
+      const res = await testMcpEndpoint(entry.url, entry.secret);
+      await upsertMcpServer(
+        {
+          id: existing?.id ?? crypto.randomUUID(),
+          name: entry.name,
+          url: entry.url,
+          enabled: entry.enabled,
+          ...(entry.autoApprove !== undefined
+            ? { autoApprove: entry.autoApprove }
+            : existing?.autoApprove
+              ? { autoApprove: existing.autoApprove }
+              : {}),
+          tools: res.ok && res.tools ? res.tools : (existing?.tools ?? []),
+          ...(res.ok ? { lastSyncedAt: new Date().toISOString(), lastError: undefined } : { lastError: res.error }),
+        },
+        entry.secret,
+      );
+    }
+    setImporting(false);
+    setJsonText('');
+    const count = parsed.servers.length;
+    const summary = t(count === 1 ? 'mcp.importDoneOne' : 'mcp.importDone', { count });
+    const skipped = parsed.skippedLocal.length
+      ? ` ${t('mcp.importSkippedLocal', { names: parsed.skippedLocal.join(', ') })}`
+      : '';
+    setImportNotice(`${summary}${skipped}`);
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <h2 className="sr-only">{t('settings.nav.mcp')}</h2>
       <Notice>{t('mcp.privacyNote')}</Notice>
+
+      <SettingsCard title={t('mcp.importTitle')} description={t('mcp.importHint')} className="flex flex-col gap-3">
+        {importError ? <Notice tone="error">{importError}</Notice> : null}
+        {importNotice ? <Notice tone="ok">{importNotice}</Notice> : null}
+        <textarea
+          aria-label={t('mcp.importTitle')}
+          value={jsonText}
+          onChange={e => setJsonText(e.target.value)}
+          rows={6}
+          placeholder={IMPORT_PLACEHOLDER}
+          className="rounded-lg border border-nb-border bg-nb-bg px-3 py-2 font-mono text-xs leading-relaxed focus:border-nb-accent focus:outline-none focus:ring-2 focus:ring-nb-accent/25"
+        />
+        <div>
+          <Button variant="primary" disabled={importing || !jsonText.trim()} onClick={() => void handleImportJson()}>
+            {importing ? t('mcp.importing') : t('mcp.importButton')}
+          </Button>
+        </div>
+      </SettingsCard>
 
       <SettingsCard title={t('mcp.addTitle')} description={t('mcp.addHint')} className="flex flex-col gap-4">
         {error ? <Notice tone="error">{error}</Notice> : null}

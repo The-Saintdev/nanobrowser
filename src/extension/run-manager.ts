@@ -1041,7 +1041,7 @@ export class RunManager {
   ): Promise<{ text: string; isError: boolean }> {
     const binding = this.#mcpBindings.get(conversationId)?.get(call.toolName);
     if (binding) {
-      if (!binding.readOnly && (this.#modes.get(conversationId) ?? 'ask') === 'ask') {
+      if (!binding.readOnly && !binding.server.autoApprove && (this.#modes.get(conversationId) ?? 'ask') === 'ask') {
         const answer = await this.broker.open<'yes' | 'no'>(
           conversationId,
           'confirm',

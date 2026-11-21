@@ -499,5 +499,16 @@
   "mcp.readOnlyBadge": "read-only",
   "mcp.toolCount": "{count} tools synced",
   "mcp.toolCountOne": "{count} tool synced",
-  "mcp.noToolsSynced": "No tools synced yet"
+  "mcp.noToolsSynced": "No tools synced yet",
+  "mcp.autoApprove": "Auto-approve writes",
+  "mcp.autoApproveHint": "Run mutating tools from this server in Ask mode without asking first.",
+  "mcp.autoApproveToggle": "Auto-approve writes for {name}",
+  "mcp.importTitle": "Import from JSON",
+  "mcp.importHint": "Paste an OpenCode (mcp.servers), Claude, or Cursor MCP JSON config to add remote servers in one click.",
+  "mcp.importButton": "Import & connect",
+  "mcp.importing": "Importing…",
+  "mcp.importEmpty": "No remote HTTP/HTTPS MCP servers found in that JSON.",
+  "mcp.importDone": "Imported {count} servers.",
+  "mcp.importDoneOne": "Imported {count} server.",
+  "mcp.importSkippedLocal": "Skipped local stdio server(s) ({names}) because Chrome extensions only connect to remote HTTP MCP endpoints."
 }

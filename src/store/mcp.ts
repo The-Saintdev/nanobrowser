@@ -17,6 +17,8 @@ export interface McpServerConfig {
   name: string;
   url: string;
   enabled: boolean;
+  /** When true, non-read-only MCP tools from this server run in Ask mode without a confirmation card. */
+  autoApprove?: boolean;
   tools: McpToolInfo[];
   lastSyncedAt?: string;
   lastError?: string;
@@ -27,6 +29,17 @@ export interface McpServerSecret {
   token?: string;
   headerName?: string;
 }
+
+export interface ParsedMcpEntry {
+  name: string;
+  url: string;
+  enabled: boolean;
+  autoApprove?: boolean;
+  secret: McpServerSecret;
+}
+
+export type McpJsonImportResult =
+  { ok: true; servers: ParsedMcpEntry[]; skippedLocal: string[] } | { ok: false; error: string };
 
 export const MCP_SERVERS_KEY = 'nb.mcpServers';
 export const MCP_SECRETS_KEY = 'nb.mcpSecrets';
@@ -54,6 +67,119 @@ export function mcpServerSlug(text: string): string {
   return slug || 'server';
 }
 
+function extractSecretFromHeaders(rawHeaders: unknown): McpServerSecret {
+  if (!rawHeaders || typeof rawHeaders !== 'object' || Array.isArray(rawHeaders)) {
+    return { authType: 'none' };
+  }
+  const entries = Object.entries(rawHeaders as Record<string, unknown>).filter(
+    (entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim().length > 0,
+  );
+  for (const [key, val] of entries) {
+    if (key.toLowerCase() === 'authorization') {
+      const trimmed = val.trim();
+      const bearerMatch = /^Bearer\s+(.+)$/i.exec(trimmed);
+      if (bearerMatch) return { authType: 'bearer', token: bearerMatch[1].trim() };
+      return { authType: 'custom', headerName: key, token: trimmed };
+    }
+  }
+  for (const [key, val] of entries) {
+    if (key.toLowerCase() === 'x-api-key') {
+      return { authType: 'x-api-key', token: val.trim() };
+    }
+  }
+  if (entries.length > 0) {
+    const [headerName, token] = entries[0];
+    return { authType: 'custom', headerName: headerName.trim(), token: token.trim() };
+  }
+  return { authType: 'none' };
+}
+
+/**
+ * Parses OpenCode (`mcp.servers`), Claude/Cursor (`mcpServers`), `servers`, or standalone server JSON into
+ * remote MCP server entries. Local stdio entries are skipped gracefully and listed in `skippedLocal`.
+ */
+export function parseMcpJsonImport(raw: string): McpJsonImportResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Invalid JSON' };
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: 'Expected a JSON object containing MCP server configuration.' };
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  let map: Record<string, unknown> | undefined;
+
+  const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  if (isObj(obj.mcp) && isObj(obj.mcp.servers)) {
+    map = obj.mcp.servers;
+  } else if (isObj(obj.mcpServers)) {
+    map = obj.mcpServers;
+  } else if (isObj(obj.servers)) {
+    map = obj.servers;
+  } else if (typeof obj.url === 'string' || typeof obj.serverUrl === 'string') {
+    const rawUrl = (typeof obj.url === 'string' ? obj.url : obj.serverUrl) as string;
+    const normalized = normalizeMcpUrl(rawUrl);
+    if (!normalized) return { ok: false, error: 'Invalid http:// or https:// MCP server URL.' };
+    const name = typeof obj.name === 'string' && obj.name.trim() ? obj.name.trim() : new URL(normalized).host;
+    return {
+      ok: true,
+      servers: [
+        {
+          name,
+          url: normalized,
+          enabled: typeof obj.enabled === 'boolean' ? obj.enabled : true,
+          ...(obj.autoApprove === true ? { autoApprove: true } : {}),
+          secret: extractSecretFromHeaders(obj.headers),
+        },
+      ],
+      skippedLocal: [],
+    };
+  } else {
+    map = obj;
+  }
+
+  const servers: ParsedMcpEntry[] = [];
+  const skippedLocal: string[] = [];
+
+  for (const [key, value] of Object.entries(map)) {
+    if (!isObj(value)) continue;
+    const rawUrl =
+      typeof value.url === 'string'
+        ? value.url
+        : typeof value.serverUrl === 'string'
+          ? value.serverUrl
+          : typeof value.endpoint === 'string'
+            ? value.endpoint
+            : undefined;
+    if (
+      value.type === 'local' ||
+      (!rawUrl && Array.isArray(value.command)) ||
+      (!rawUrl && typeof value.command === 'string')
+    ) {
+      skippedLocal.push(key);
+      continue;
+    }
+    if (!rawUrl) continue;
+    const normalized = normalizeMcpUrl(rawUrl);
+    if (!normalized) continue;
+    servers.push({
+      name:
+        typeof value.name === 'string' && value.name.trim()
+          ? value.name.trim()
+          : key.trim() || new URL(normalized).host,
+      url: normalized,
+      enabled: typeof value.enabled === 'boolean' ? value.enabled : true,
+      ...(value.autoApprove === true ? { autoApprove: true } : {}),
+      secret: extractSecretFromHeaders(value.headers),
+    });
+  }
+
+  return { ok: true, servers, skippedLocal };
+}
+
 function mergeServers(raw: unknown): McpServerConfig[] {
   if (!Array.isArray(raw)) return [];
   const out: McpServerConfig[] = [];
@@ -79,6 +205,7 @@ function mergeServers(raw: unknown): McpServerConfig[] {
       name: s.name.trim() || url,
       url,
       enabled: typeof s.enabled === 'boolean' ? s.enabled : true,
+      ...(s.autoApprove === true ? { autoApprove: true } : {}),
       tools,
       ...(typeof s.lastSyncedAt === 'string' ? { lastSyncedAt: s.lastSyncedAt } : {}),
       ...(typeof s.lastError === 'string' ? { lastError: s.lastError } : {}),

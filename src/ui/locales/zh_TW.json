@@ -499,5 +499,16 @@
   "mcp.readOnlyBadge": "唯讀",
   "mcp.toolCount": "已同步 {count} 個工具",
   "mcp.toolCountOne": "已同步 {count} 個工具",
-  "mcp.noToolsSynced": "尚未同步工具"
+  "mcp.noToolsSynced": "尚未同步工具",
+  "mcp.autoApprove": "自動核准寫入操作",
+  "mcp.autoApproveHint": "在「詢問」模式下直接執行此伺服器的變更類工具，無需每次確認。",
+  "mcp.autoApproveToggle": "為 {name} 開啟自動核准",
+  "mcp.importTitle": "從 JSON 匯入",
+  "mcp.importHint": "貼上 OpenCode (mcp.servers)、Claude 或 Cursor 的 MCP JSON 設定，一鍵匯入遠端伺服器。",
+  "mcp.importButton": "匯入並連線",
+  "mcp.importing": "匯入中…",
+  "mcp.importEmpty": "該 JSON 中未找到遠端 HTTP/HTTPS MCP 伺服器。",
+  "mcp.importDone": "已匯入 {count} 個伺服器。",
+  "mcp.importDoneOne": "已匯入 {count} 個伺服器。",
+  "mcp.importSkippedLocal": "已略過本機 stdio 伺服器（{names}），因為 Chrome 擴充功能僅支援連線遠端 HTTP MCP 端點。"
 }

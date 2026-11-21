@@ -499,5 +499,16 @@
   "mcp.readOnlyBadge": "只读",
   "mcp.toolCount": "已同步 {count} 个工具",
   "mcp.toolCountOne": "已同步 {count} 个工具",
-  "mcp.noToolsSynced": "尚未同步工具"
+  "mcp.noToolsSynced": "尚未同步工具",
+  "mcp.autoApprove": "自动批准写入操作",
+  "mcp.autoApproveHint": "在“询问”模式下直接运行此服务器的修改类工具，无需每次确认。",
+  "mcp.autoApproveToggle": "为 {name} 开启自动批准",
+  "mcp.importTitle": "从 JSON 导入",
+  "mcp.importHint": "粘贴 OpenCode (mcp.servers)、Claude 或 Cursor 的 MCP JSON 配置，一键导入远程服务器。",
+  "mcp.importButton": "导入并连接",
+  "mcp.importing": "导入中…",
+  "mcp.importEmpty": "该 JSON 中未找到远程 HTTP/HTTPS MCP 服务器。",
+  "mcp.importDone": "已导入 {count} 个服务器。",
+  "mcp.importDoneOne": "已导入 {count} 个服务器。",
+  "mcp.importSkippedLocal": "已跳过本地 stdio 服务器（{names}），因为 Chrome 扩展仅支持连接远程 HTTP MCP 端点。"
 }
